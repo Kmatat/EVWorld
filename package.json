@@ -37,7 +37,8 @@
     "web": "expo start --web",
     "test": "jest",
     "typecheck": "tsc --noEmit",
-    "build:web": "expo export --platform web"
+    "build:web": "expo export --platform web",
+    "build:demo": "expo export --platform web && node scripts/build-demo-page.js dist demo/evworld-demo.html"
   },
   "private": true,
   "jest": {

@@ -31,7 +31,12 @@
     },
     "scheme": "evworld",
     "plugins": [
-      "expo-router",
+      [
+        "expo-router",
+        {
+          "asyncRoutes": false
+        }
+      ],
       [
         "expo-location",
         {

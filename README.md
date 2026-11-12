@@ -42,6 +42,10 @@ npm run typecheck  # TypeScript check
 npm run build:web  # static web build in dist/
 ```
 
+```bash
+npm run build:demo # the whole web app packed into one shareable HTML file: demo/evworld-demo.html
+```
+
 ## Project structure
 
 ```
