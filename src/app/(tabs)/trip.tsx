@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
-import { ReactNode, useMemo, useState } from 'react';
+import { ReactNode, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import BatteryControl from '@/components/BatteryControl';
@@ -8,17 +8,20 @@ import EVMap from '@/components/map/EVMap';
 import { MapPin } from '@/components/map/types';
 import PlacePicker from '@/components/PlacePicker';
 import { Badge, Banner, BatteryBar, Button, Card, Chip, Divider, IconName, Row, Screen, SectionTitle, Stat, Stepper, text } from '@/components/ui';
+import { inferClimateOn, profileFromDistance, tripTemperature } from '@/core/autoConditions';
 import { formatDuration, formatKm } from '@/core/geo';
 import { formatEgp, productFits } from '@/core/marketplace';
 import { consumption, PROFILE_FACTOR, STYLE_FACTOR, climatePowerKw, AVERAGE_SPEED_KMH, REAL_WORLD_FACTOR, energyAtPercent } from '@/core/range';
-import { routeShapeThrough } from '@/core/roads';
+import { roadKm, routeShapeThrough } from '@/core/roads';
 import { NearbyCharger, planTrip } from '@/core/tripPlanner';
 import { CONNECTOR_LABEL, DrivingStyle, RouteProfile } from '@/core/types';
 import { PRODUCTS } from '@/data/marketplace';
 import { STATIONS } from '@/data/stations';
 import { useNow } from '@/hooks/useNow';
 import { useUserLocation } from '@/hooks/useUserLocation';
+import { getTemperature } from '@/services/weather';
 import { useAppStore, useVehicle } from '@/store/useAppStore';
+import { useDriveStore } from '@/store/useDriveStore';
 import { batteryColor, colors, radius, space } from '@/theme';
 import { openNavigation, resolveLocation } from '@/utils/locations';
 
@@ -37,16 +40,48 @@ export default function TripScreen() {
   const setDestination = useAppStore((s) => s.setDestination);
   const [picker, setPicker] = useState<'origin' | 'destination' | null>(null);
   const [showMath, setShowMath] = useState(false);
+  const autoOn = useAppStore((s) => s.autoConditions);
+  const setAuto = useAppStore((s) => s.setAutoConditions);
+  const factor = useAppStore((s) => s.consumptionFactor[vehicle.id]);
+  const detectedStyle = useAppStore((s) => s.detectedStyle);
+  const startDrive = useDriveStore((s) => s.start);
+  const driveActive = useDriveStore((s) => s.active);
+  const [weather, setWeather] = useState<{ celsius: number; source: 'live' | 'typical' }>();
 
   const origin = originId === 'gps' ? { name: gps.source === 'gps' ? 'My location' : gps.label, location: gps.location } : resolveLocation(originId);
   const destination = resolveLocation(destinationId);
 
+  // Automatic conditions: weather at both ends, AC from the heat, road type from distance, style from past drives.
+  const oLat = origin?.location.lat;
+  const oLng = origin?.location.lng;
+  const dLat = destination?.location.lat;
+  const dLng = destination?.location.lng;
+  useEffect(() => {
+    if (!autoOn || oLat == null || oLng == null) return;
+    let cancelled = false;
+    (async () => {
+      const start = await getTemperature({ lat: oLat, lng: oLng });
+      const end = dLat != null && dLng != null ? await getTemperature({ lat: dLat, lng: dLng }) : undefined;
+      if (cancelled) return;
+      const celsius = tripTemperature(start.celsius, end?.celsius);
+      setWeather({ celsius, source: start.source === 'live' && (!end || end.source === 'live') ? 'live' : 'typical' });
+      const km = dLat != null && dLng != null ? roadKm({ lat: oLat, lng: oLng }, { lat: dLat, lng: dLng }) : 0;
+      const next = { temperatureC: celsius, climateOn: inferClimateOn(celsius), profile: km ? profileFromDistance(km) : conditions.profile, style: detectedStyle ?? 'normal' };
+      const cur = useAppStore.getState().conditions;
+      if (cur.temperatureC !== next.temperatureC || cur.climateOn !== next.climateOn || cur.profile !== next.profile || cur.style !== next.style) setConditions(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOn, oLat, oLng, dLat, dLng, detectedStyle]);
+
   const plan = useMemo(
     () =>
       origin && destination
-        ? planTrip({ vehicle, batteryPercent: battery, origin: origin.location, destination: destination.location, conditions, stations: STATIONS, reservePercent: reserve, now })
+        ? planTrip({ vehicle, batteryPercent: battery, origin: origin.location, destination: destination.location, conditions, stations: STATIONS, reservePercent: reserve, consumptionFactor: factor, now })
         : undefined,
-    [vehicle, battery, origin?.location.lat, origin?.location.lng, destination?.location.lat, destination?.location.lng, conditions, reserve, now],
+    [vehicle, battery, origin?.location.lat, origin?.location.lng, destination?.location.lat, destination?.location.lng, conditions, reserve, factor, now],
   );
 
   const pins: MapPin[] = plan
@@ -104,8 +139,30 @@ export default function TripScreen() {
       </Card>
 
       <Card>
-        <Text style={text.h3}>Driving conditions</Text>
+        <Row style={{ justifyContent: 'space-between' }}>
+          <Text style={text.h3}>Driving conditions</Text>
+          <Row gap={6}>
+            <Chip label="Automatic" icon="sparkles-outline" selected={autoOn} onPress={() => setAuto(true)} />
+            <Chip label="Manual" selected={!autoOn} onPress={() => setAuto(false)} />
+          </Row>
+        </Row>
         <Text style={[text.small, { marginTop: 2 }]}>These change how much energy the car uses per km.</Text>
+        {autoOn ? (
+          <View style={{ marginTop: space.sm }}>
+            <AutoRow icon="thermometer-outline" label="Temperature" value={`${conditions.temperatureC}°C`} source={weather?.source === 'live' ? 'live weather at start & destination' : 'typical for this area and month'} />
+            <AutoRow icon="snow-outline" label="Air-conditioning" value={conditions.climateOn ? 'On' : 'Off'} source="from your car when connected, otherwise from the heat" />
+            <AutoRow icon="speedometer-outline" label="Road type" value={conditions.profile[0].toUpperCase() + conditions.profile.slice(1)} source="from the trip distance, then live speed" />
+            <AutoRow icon="pulse-outline" label="Driving style" value={conditions.style[0].toUpperCase() + conditions.style.slice(1)} source={detectedStyle ? 'detected from your last drive' : 'normal until your first trip'} />
+            <AutoRow
+              icon="analytics-outline"
+              label="Your car's real use"
+              value={factor ? `${factor >= 1 ? '+' : ''}${Math.round((factor - 1) * 100)}% vs model` : 'Not learned yet'}
+              source={factor ? 'learned from real battery readings' : 'learned automatically once your car is connected'}
+            />
+          </View>
+        ) : null}
+        {!autoOn ? (
+          <>
         <Label>Road</Label>
         <Row gap={6}>
           {(['city', 'mixed', 'highway'] as RouteProfile[]).map((p) => (
@@ -125,6 +182,8 @@ export default function TripScreen() {
             <Chip key={s} label={s[0].toUpperCase() + s.slice(1)} selected={conditions.style === s} onPress={() => setConditions({ style: s })} />
           ))}
         </Row>
+          </>
+        ) : null}
         <Row style={{ justifyContent: 'space-between', marginTop: space.md }}>
           <View>
             <Text style={text.strong}>People in the car</Text>
@@ -205,8 +264,16 @@ export default function TripScreen() {
           </Card>
 
           <View style={{ gap: space.sm }}>
+            <Button
+              title={driveActive ? 'Back to trip in progress' : 'Start trip (live battery updates)'}
+              icon="play-circle-outline"
+              onPress={() => {
+                if (!driveActive) startDrive({ origin: origin!, destination: destination!, batteryPercent: battery });
+                router.push('/drive');
+              }}
+            />
             {plan.status !== 'unreachable' ? (
-              <Button title="Start navigation (Google Maps)" icon="navigate" onPress={() => openNavigation(destination!.location, origin!.location, plan.stops.map((s) => s.station.location))} />
+              <Button title="Open in Google Maps" icon="navigate" kind="secondary" onPress={() => openNavigation(destination!.location, origin!.location, plan.stops.map((s) => s.station.location))} />
             ) : null}
             <Button title="Recalculate from my current location" icon="refresh-outline" kind="secondary" onPress={recalcFromHere} />
           </View>
@@ -377,6 +444,7 @@ function MathBreakdown() {
   const battery = useAppStore((s) => s.batteryPercent);
   const reserve = useAppStore((s) => s.reservePercent);
   const conditions = useAppStore((s) => s.conditions);
+  const factor = useAppStore((s) => s.consumptionFactor[vehicle.id]);
   const c = consumption(vehicle, conditions);
   const energy = energyAtPercent(vehicle, battery);
   const reserveKwh = energyAtPercent(vehicle, reserve);
@@ -393,7 +461,8 @@ function MathBreakdown() {
       `${climatePowerKw(conditions.temperatureC, conditions.climateOn)} kW ÷ ${AVERAGE_SPEED_KMH[conditions.profile]} km/h = +${c.climateWhPerKm.toFixed(0)} Wh/km`,
     ],
     ['Total energy use', `${c.totalWhPerKm.toFixed(0)} Wh/km`],
-    ['Safe range', `(${energy.toFixed(1)} − ${reserveKwh.toFixed(1)}) kWh ÷ ${c.totalWhPerKm.toFixed(0)} Wh/km = ${(Math.max(0, energy - reserveKwh) * 1000 / c.totalWhPerKm).toFixed(0)} km`],
+    ...(factor ? ([['Your car (learned)', `× ${factor.toFixed(2)} → ${(c.totalWhPerKm * factor).toFixed(0)} Wh/km`]] as [string, string][]) : []),
+    ['Safe range', `(${energy.toFixed(1)} − ${reserveKwh.toFixed(1)}) kWh ÷ ${(c.totalWhPerKm * (factor ?? 1)).toFixed(0)} Wh/km = ${(Math.max(0, energy - reserveKwh) * 1000 / (c.totalWhPerKm * (factor ?? 1))).toFixed(0)} km`],
   ];
   return (
     <View style={{ marginTop: space.md }}>
@@ -407,6 +476,21 @@ function MathBreakdown() {
         Road distances follow Egypt's main highways (e.g. Sinai via the Ahmed Hamdi tunnel). Charging times follow a typical charging curve: fast up to 80%, slower after. Live charger status comes from the networks, and is simulated in this demo.
       </Text>
     </View>
+  );
+}
+
+function AutoRow({ icon, label, value, source }: { icon: IconName; label: string; value: string; source: string }) {
+  return (
+    <Row style={{ paddingVertical: 6, alignItems: 'flex-start' }}>
+      <Ionicons name={icon} size={18} color={colors.primary} style={{ marginTop: 1 }} />
+      <View style={{ flex: 1 }}>
+        <Row style={{ justifyContent: 'space-between' }}>
+          <Text style={text.body}>{label}</Text>
+          <Text style={text.strong}>{value}</Text>
+        </Row>
+        <Text style={text.small}>{source}</Text>
+      </View>
+    </Row>
   );
 }
 

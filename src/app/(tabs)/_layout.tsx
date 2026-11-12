@@ -3,6 +3,7 @@ import { router, Tabs } from 'expo-router';
 import { Pressable, Text, View } from 'react-native';
 
 import { useCartCount } from '@/store/useAppStore';
+import { useUnreadCount } from '@/store/useCommunityStore';
 import { colors } from '@/theme';
 
 function CartButton() {
@@ -20,6 +21,7 @@ function CartButton() {
 }
 
 export default function TabsLayout() {
+  const unread = useUnreadCount();
   return (
     <Tabs
       screenOptions={{
@@ -45,6 +47,15 @@ export default function TabsLayout() {
           headerTitle: 'EV Marketplace',
           headerRight: () => <CartButton />,
           tabBarIcon: ({ color, size }) => <Ionicons name="storefront" color={color as string} size={size} />,
+        }}
+      />
+      <Tabs.Screen
+        name="inbox"
+        options={{
+          title: 'Inbox',
+          headerTitle: 'Messages',
+          tabBarBadge: unread > 0 ? unread : undefined,
+          tabBarIcon: ({ color, size }) => <Ionicons name="chatbubbles" color={color as string} size={size} />,
         }}
       />
       <Tabs.Screen

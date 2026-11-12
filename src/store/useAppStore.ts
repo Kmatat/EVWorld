@@ -1,11 +1,13 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
-import { createJSONStorage, persist, StateStorage } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
 
 import { CartLine, PaymentMethod } from '@/core/marketplace';
 import { DEFAULT_CONDITIONS, DEFAULT_RESERVE_PERCENT } from '@/core/range';
-import { DrivingConditions, Vehicle } from '@/core/types';
+import { DrivingConditions, DrivingStyle, Vehicle } from '@/core/types';
 import { DEFAULT_VEHICLE_ID, VEHICLES } from '@/data/vehicles';
+import type { VehicleLinkId } from '@/services/vehicleData';
+
+import { safeStorage } from './safeStorage';
 
 /**
  * App state that survives restarts: the driver's car, battery level, trip
@@ -23,6 +25,9 @@ export interface PlacedOrder {
   payment: PaymentMethod;
   createdAt: number;
   status: 'placed' | 'shipped' | 'delivered';
+  /** Snapshot of the delivery address and contact at order time. */
+  deliverTo?: string;
+  contactPhone?: string;
 }
 
 export interface Booking {
@@ -74,6 +79,14 @@ interface AppState {
   inquiries: CarInquiry[];
   savedCars: string[];
   applications: SellerApplication[];
+  /** Where the battery % comes from. */
+  vehicleLink: VehicleLinkId;
+  /** Fill temperature, AC, road type and style automatically. */
+  autoConditions: boolean;
+  /** Personal consumption correction per vehicle, learned from real readings. */
+  consumptionFactor: Record<string, number>;
+  /** Style detected from the last drive. */
+  detectedStyle?: DrivingStyle;
 
   setVehicle: (id: string) => void;
   setCustomVehicle: (v: Vehicle) => void;
@@ -93,32 +106,11 @@ interface AppState {
   addInquiry: (i: Omit<CarInquiry, 'id' | 'createdAt'>) => void;
   toggleSavedCar: (carId: string) => void;
   addApplication: (a: Omit<SellerApplication, 'id' | 'createdAt'>) => void;
+  setVehicleLink: (id: VehicleLinkId) => void;
+  setAutoConditions: (on: boolean) => void;
+  setConsumptionFactor: (vehicleId: string, factor: number | undefined) => void;
+  setDetectedStyle: (style: DrivingStyle | undefined) => void;
 }
-
-/** Storage that never crashes the app (e.g. private browsing blocks localStorage). */
-const safeStorage: StateStorage = {
-  getItem: async (name) => {
-    try {
-      return await AsyncStorage.getItem(name);
-    } catch {
-      return null;
-    }
-  },
-  setItem: async (name, value) => {
-    try {
-      await AsyncStorage.setItem(name, value);
-    } catch {
-      /* ignore */
-    }
-  },
-  removeItem: async (name) => {
-    try {
-      await AsyncStorage.removeItem(name);
-    } catch {
-      /* ignore */
-    }
-  },
-};
 
 let counter = 1040;
 export const newId = (prefix: string) => `${prefix}-${++counter}${Math.floor(Math.random() * 10)}`;
@@ -143,6 +135,10 @@ export const useAppStore = create<AppState>()(
       inquiries: [],
       savedCars: [],
       applications: [],
+      vehicleLink: 'manual',
+      autoConditions: true,
+      consumptionFactor: {},
+      detectedStyle: undefined,
 
       setVehicle: (vehicleId) => set({ vehicleId }),
       setCustomVehicle: (customVehicle) => set({ customVehicle, vehicleId: customVehicle.id }),
@@ -186,6 +182,15 @@ export const useAppStore = create<AppState>()(
         set({ savedCars: s.includes(id) ? s.filter((x) => x !== id) : [...s, id] });
       },
       addApplication: (a) => set({ applications: [{ ...a, id: newId('AP'), createdAt: Date.now() }, ...get().applications] }),
+      setVehicleLink: (vehicleLink) => set({ vehicleLink }),
+      setAutoConditions: (autoConditions) => set({ autoConditions }),
+      setConsumptionFactor: (vehicleId, factor) => {
+        const next = { ...get().consumptionFactor };
+        if (factor == null) delete next[vehicleId];
+        else next[vehicleId] = factor;
+        set({ consumptionFactor: next });
+      },
+      setDetectedStyle: (detectedStyle) => set({ detectedStyle }),
     }),
     {
       name: 'evworld-state-v1',
@@ -193,6 +198,13 @@ export const useAppStore = create<AppState>()(
     },
   ),
 );
+
+/** The selected car, outside React components. */
+export function getCurrentVehicle(): Vehicle {
+  const { vehicleId, customVehicle } = useAppStore.getState();
+  if (customVehicle && customVehicle.id === vehicleId) return customVehicle;
+  return VEHICLES.find((v) => v.id === vehicleId) ?? VEHICLES[0];
+}
 
 /** The car currently selected, including a custom one. */
 export function useVehicle(): Vehicle {

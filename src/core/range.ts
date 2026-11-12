@@ -72,7 +72,12 @@ export interface ConsumptionBreakdown {
   totalWhPerKm: number;
 }
 
-export function consumption(vehicle: Vehicle, c: DrivingConditions): ConsumptionBreakdown {
+/**
+ * @param factor personal correction learned from this car's real battery
+ *   readings (1 = the car behaves exactly like the model predicts; 1.08 =
+ *   it uses 8% more). See liveBattery.ts.
+ */
+export function consumption(vehicle: Vehicle, c: DrivingConditions, factor = 1): ConsumptionBreakdown {
   const base = baseWhPerKm(vehicle);
   const extraPassengers = Math.max(0, c.passengers - 1);
   const driving =
@@ -80,9 +85,9 @@ export function consumption(vehicle: Vehicle, c: DrivingConditions): Consumption
   const climate = (climatePowerKw(c.temperatureC, c.climateOn) * 1000) / AVERAGE_SPEED_KMH[c.profile];
   return {
     baseWhPerKm: base,
-    drivingWhPerKm: driving,
-    climateWhPerKm: climate,
-    totalWhPerKm: driving + climate,
+    drivingWhPerKm: driving * factor,
+    climateWhPerKm: climate * factor,
+    totalWhPerKm: (driving + climate) * factor,
   };
 }
 
@@ -115,8 +120,9 @@ export function estimateRange(
   batteryPercent: number,
   conditions: DrivingConditions,
   reservePercent = DEFAULT_RESERVE_PERCENT,
+  factor = 1,
 ): RangeEstimate {
-  const { totalWhPerKm } = consumption(vehicle, conditions);
+  const { totalWhPerKm } = consumption(vehicle, conditions, factor);
   const kmPerPercent = (vehicle.usableKwh * 10) / totalWhPerKm; // (usable/100 kWh × 1000) / Wh-per-km
   const soc = clampPercent(batteryPercent);
   return {
@@ -125,6 +131,11 @@ export function estimateRange(
     whPerKm: totalWhPerKm,
     reservePercent,
   };
+}
+
+/** Learned factors are kept within a sane band so one odd trip can't distort everything. */
+export function clampFactor(f: number): number {
+  return Math.min(1.5, Math.max(0.7, f));
 }
 
 export function clampPercent(p: number): number {

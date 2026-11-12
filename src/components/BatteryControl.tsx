@@ -18,7 +18,9 @@ export default function BatteryControl({ compact }: { compact?: boolean }) {
   const setBattery = useAppStore((s) => s.setBattery);
   const reserve = useAppStore((s) => s.reservePercent);
   const conditions = useAppStore((s) => s.conditions);
-  const range = estimateRange(vehicle, battery, conditions, reserve);
+  const factor = useAppStore((s) => s.consumptionFactor[vehicle.id]);
+  const link = useAppStore((s) => s.vehicleLink);
+  const range = estimateRange(vehicle, battery, conditions, reserve, factor);
 
   return (
     <Card>
@@ -57,6 +59,10 @@ export default function BatteryControl({ compact }: { compact?: boolean }) {
       ) : null}
       <Text style={[text.small, { marginTop: space.sm }]}>
         {vehicle.make} {vehicle.model} · {vehicle.usableKwh} kWh usable · based on {conditions.profile} driving at {conditions.temperatureC}°C
+        {factor ? ` · your car's learned use (${factor >= 1 ? '+' : ''}${Math.round((factor - 1) * 100)}%)` : ''}
+      </Text>
+      <Text style={[text.small, { marginTop: 2 }]}>
+        {link === 'manual' ? 'Set by you. Connect your car in My EV to update it automatically.' : 'Updates automatically from your car during a trip.'}
       </Text>
     </Card>
   );

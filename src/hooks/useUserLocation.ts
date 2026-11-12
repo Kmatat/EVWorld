@@ -23,23 +23,22 @@ const useLocationStore = create<{ location: LatLng; source: Source; loading: boo
 export function useUserLocation({ auto = Platform.OS !== 'web' }: { auto?: boolean } = {}) {
   const { location, source, loading, set } = useLocationStore();
 
-  const request = useCallback(async () => {
+  /** Asks for GPS and returns the resulting position (falls back to Cairo). */
+  const request = useCallback(async (): Promise<{ location: LatLng; source: Source }> => {
     set({ loading: true });
+    let result: { location: LatLng; source: Source } = { location: CAIRO, source: 'denied' };
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        set({ source: 'denied', location: CAIRO });
-        return;
+      if (status === 'granted') {
+        const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        const here = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        result = insideEgypt(here) ? { location: here, source: 'gps' } : { location: CAIRO, source: 'outside_egypt' };
       }
-      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      const here = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-      if (insideEgypt(here)) set({ location: here, source: 'gps' });
-      else set({ location: CAIRO, source: 'outside_egypt' });
     } catch {
-      set({ source: 'denied', location: CAIRO });
-    } finally {
-      set({ loading: false });
+      result = { location: CAIRO, source: 'denied' };
     }
+    set({ ...result, loading: false });
+    return result;
   }, [set]);
 
   const [asked, setAsked] = useState(false);

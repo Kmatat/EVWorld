@@ -6,31 +6,17 @@ import { Pressable, Text, View } from 'react-native';
 import BatteryControl from '@/components/BatteryControl';
 import { toast } from '@/components/Toast';
 import { Badge, Banner, Button, Card, Chip, Divider, Field, ListRow, Row, Screen, SectionTitle, text } from '@/components/ui';
+import { formatAddress, maskPhone } from '@/core/identity';
 import { formatEgp } from '@/core/marketplace';
 import { CONNECTOR_LABEL, ConnectorType, Vehicle } from '@/core/types';
 import { carById, shopById, vendorById } from '@/data/marketplace';
 import { stationById } from '@/data/stations';
 import { VEHICLES } from '@/data/vehicles';
+import { linkLabel, VEHICLE_LINKS } from '@/services/vehicleData';
 import { useAppStore, useVehicle } from '@/store/useAppStore';
+import { useAuthStore, useDefaultAddress } from '@/store/useAuthStore';
+import { useCommunityStore } from '@/store/useCommunityStore';
 import { colors, space } from '@/theme';
-
-const INTEGRATIONS = [
-  {
-    icon: 'cloud-outline' as const,
-    title: 'Connected-car account',
-    body: 'Log in with your Tesla, BMW, Hyundai/Kia, Mercedes or VW account. Battery % syncs automatically through the carmaker\'s cloud (via an aggregator API).',
-  },
-  {
-    icon: 'bluetooth-outline' as const,
-    title: 'Bluetooth OBD-II dongle',
-    body: 'A small plug-in device (~EGP 1,500) that reads the battery directly. Works with many Chinese brands that have no cloud API.',
-  },
-  {
-    icon: 'hardware-chip-outline' as const,
-    title: 'Android Auto / in-car app',
-    body: 'On cars running Android Automotive, the app reads battery % from the car itself.',
-  },
-];
 
 export default function MyEvScreen() {
   const vehicle = useVehicle();
@@ -46,9 +32,56 @@ export default function MyEvScreen() {
   const applications = useAppStore((s) => s.applications);
 
   const makes = [...new Set(VEHICLES.map((v) => v.make))];
+  const user = useAuthStore((s) => s.user);
+  const signOut = useAuthStore((s) => s.signOut);
+  const addressCount = useAuthStore((s) => s.addresses.length);
+  const defaultAddress = useDefaultAddress();
+  const link = useAppStore((s) => s.vehicleLink);
+  const factor = useAppStore((s) => s.consumptionFactor[vehicle.id]);
+  const hostedCount = useCommunityStore((s) => s.hosted.length);
+  const communityBookings = useCommunityStore((s) => s.bookings.length);
 
   return (
     <Screen>
+      {user ? (
+        <Card>
+          <Row>
+            <View style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 18 }}>{(user.name || 'E')[0].toUpperCase()}</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={text.h3}>{user.name || 'EVWorld driver'}</Text>
+              <Text style={text.small}>
+                {user.provider === 'apple' ? 'Apple' : 'Google'} account{user.email ? ` · ${user.email}` : ''}
+              </Text>
+            </View>
+          </Row>
+          <Divider />
+          <ListRow
+            icon="call-outline"
+            title={user.phone ? maskPhone(user.phone) : 'Mobile number required'}
+            subtitle={user.phoneVerified ? 'Verified · private, never shown to other users' : 'Verify to order, chat and host'}
+            right={user.phoneVerified ? <Badge label="Verified" tone="green" /> : undefined}
+            onPress={user.phoneVerified ? undefined : () => router.push('/auth/phone')}
+          />
+          <ListRow
+            icon="location-outline"
+            title={`Delivery addresses (${addressCount})`}
+            subtitle={defaultAddress ? formatAddress(defaultAddress) : 'Add one for marketplace deliveries'}
+            onPress={() => router.push('/account/addresses')}
+          />
+          <Pressable onPress={signOut} style={{ marginTop: space.sm }} hitSlop={6}>
+            <Text style={{ color: colors.red, fontWeight: '600' }}>Sign out</Text>
+          </Pressable>
+        </Card>
+      ) : (
+        <Card>
+          <Text style={text.h3}>Sign in to EVWorld</Text>
+          <Text style={[text.body, { marginTop: 4 }]}>Use Apple or Google. Then verify your mobile to order, chat with hosts and sellers, and share your charger.</Text>
+          <Button title="Sign in" icon="person-circle-outline" style={{ marginTop: space.md }} onPress={() => router.push('/auth/sign-in')} />
+        </Card>
+      )}
+
       <Card>
         <Row style={{ alignItems: 'flex-start' }}>
           <View style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
@@ -108,23 +141,23 @@ export default function MyEvScreen() {
 
       <BatteryControl compact />
 
-      <Card>
-        <Row>
-          <Ionicons name="sync-outline" size={20} color={colors.primary} />
-          <Text style={[text.h3, { flex: 1 }]}>Automatic battery %</Text>
-          <Badge label="Coming soon" tone="amber" />
-        </Row>
-        <Text style={[text.small, { marginTop: 4 }]}>Today you set the battery level yourself. These are the planned ways to read it automatically:</Text>
-        {INTEGRATIONS.map((i) => (
-          <Row key={i.title} style={{ marginTop: space.md, alignItems: 'flex-start' }}>
-            <Ionicons name={i.icon} size={20} color={colors.inkSoft} />
-            <View style={{ flex: 1 }}>
-              <Text style={text.strong}>{i.title}</Text>
-              <Text style={text.small}>{i.body}</Text>
-            </View>
-          </Row>
-        ))}
-        <Button title="Join the beta" kind="secondary" style={{ marginTop: space.md }} onPress={() => toast("Thanks! We'll invite you when car connection launches.")} />
+      <Card style={{ paddingVertical: space.sm }}>
+        <ListRow
+          icon="sync-outline"
+          title="Car connection"
+          subtitle={`${VEHICLE_LINKS.find((l) => l.id === link)?.title} · battery ${linkLabel(link)}${factor ? ` · learned use ${factor >= 1 ? '+' : ''}${Math.round((factor - 1) * 100)}%` : ''}`}
+          onPress={() => router.push('/car-connection')}
+        />
+        <Divider />
+        <ListRow icon="tv-outline" iconColor={colors.blue} title="CarPlay & Android Auto" subtitle="Preview what EVWorld shows on your car's screen" onPress={() => router.push('/car-display')} />
+        <Divider />
+        <ListRow
+          icon="home-outline"
+          iconColor={colors.purple}
+          title="Community charging"
+          subtitle={hostedCount ? `${hostedCount} shared charger${hostedCount > 1 ? 's' : ''} · ${communityBookings} sessions & requests` : 'Share your charger and earn per kWh'}
+          onPress={() => router.push(hostedCount || communityBookings ? '/community/mine' : '/community/host')}
+        />
       </Card>
 
       <SectionTitle title="My activity" />

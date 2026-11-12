@@ -60,9 +60,11 @@ export default function EVMap({ pins, path, height = 280, onPinPress, fit }: EVM
             onPress={onPinPress ? () => onPinPress(pin.id) : undefined}
             tracksViewChanges={false}
           >
-            <View style={[styles.pin, { backgroundColor: pin.color }, pin.kind !== 'station' && styles.bigPin]}>
+            <View style={[styles.pin, { backgroundColor: pin.color }, pin.kind !== 'station' && pin.kind !== 'community' && styles.bigPin]}>
               {pin.kind === 'destination' ? (
                 <Ionicons name="flag" size={12} color="#fff" />
+              ) : pin.kind === 'community' ? (
+                <Ionicons name="home" size={9} color="#fff" />
               ) : pin.label ? (
                 <Text style={styles.pinLabel}>{pin.label}</Text>
               ) : (

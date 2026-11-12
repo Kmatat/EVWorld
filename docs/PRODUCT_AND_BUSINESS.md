@@ -13,6 +13,8 @@ EVWorld is one app for EV drivers in Egypt, built on three pillars:
 | **Charge** | Map and list of chargers with live status, filters (fits my car, DC fast, free now, 100 kW+), prices, navigation, "alert me when free", and problem reports | Same core features (LiveEV's store listing describes live status, filters, route planning, alerts and reporting) |
 | **Range & trip planner** *(addition 1)* | Enter battery %, pick a destination, and get: can I make it, where to charge, for how long, what it costs, and the chargers near the start and the destination | LiveEV plans routes with charging stops. EVWorld adds a range model built from battery %, car model, temperature, AC, road type and passengers, and shows its full calculation |
 | **Marketplace** *(addition 2)* | Multivendor store for EV accessories, booking for certified repair shops, and EVs for sale from dealers and owners | New: LiveEV has no commerce |
+| **Community charging** *(addition 3)* | Drivers share home or office chargers and get paid per kWh. Requests, chat and payment happen in the app, and phone numbers stay private | New |
+| **In the car** *(addition 4)* | CarPlay / Android Auto screens. Live battery during the trip, from the car where possible. Automatic weather, AC and driving-style inputs | Goes beyond LiveEV's navigation hand-off |
 
 The marketplace is what turns a free utility app into a business. The charging map brings EV drivers in every day. The marketplace monetizes them at the moments they need something: a home charger, an adapter, a repair, or their next car.
 
@@ -35,8 +37,17 @@ The marketplace is what turns a free utility app into a business. The charging m
 | Repair shops: services, booking with time slots | ✅ Working (demo) | Shop calendar sync, confirmations |
 | Cars for sale: filters, battery health, "can it do my trips?", offers, inspection booking | ✅ Working (demo) | Photo upload, ID verification, moderation |
 | Sell on EVWorld: business application, earnings calculator, list my car | ✅ Working (demo) | Vendor onboarding, KYC, admin panel |
+| Sign in with Apple / Google, required verified mobile (OTP), delivery addresses | ✅ Working (Apple real on iPhone; Google & SMS simulated) | Supabase Auth + SMS provider |
+| Community chargers: host form, approximate pin, requests, accept, pay per kWh, ratings | ✅ Working (other side simulated) | Server (schema ready) |
+| In-app chat with automatic hiding of phone numbers, emails, WhatsApp links | ✅ Working | Server realtime (schema ready, masking enforced in the database) |
+| Trip mode: live battery, next stop, automatic re-plan, learning real consumption | ✅ Working (GPS on phones, simulator in the demo) | — |
+| Battery from the car | ✅ Demo car; Android Auto bridge ready in code | Native car module, car-data provider contract |
+| CarPlay / Android Auto screens | ✅ In-app preview; screen logic built and tested | Native module + Apple/Google approval |
+| Automatic temperature (weather) / AC / road type / driving style | ✅ Working (typical-climate fallback offline) | Commercial weather plan |
+| Real charger feeds (OCPI, Open Charge Map) | ✅ Connectors built and tested with sample data | Data agreements with networks |
+| Backend with privacy rules (who sees phone, exact location, messages, orders) | ✅ Database schema, tested (6 checks) | Deploy on Supabase |
 | Arabic / right-to-left | ❌ Not yet | Required for launch |
-| User accounts, backend, admin | ❌ Not yet (everything is stored on the phone) | Required for launch |
+| Admin / review panel | ❌ Not yet | Required for launch |
 
 All operators, sellers, products and prices are **fictional demo data**. They are clearly labelled in the app.
 
@@ -103,6 +114,33 @@ In production, status comes from each charging network through **OCPI** (Open Ch
 - **Cars for sale** (dealers and owners): price, km, spec (Egypt agent / European / Gulf / China spec), and above all **battery health**. Badges separate *certified* from *seller-reported*. "Can this car do your trips?" reuses the range engine. One tap books a pre-purchase battery inspection at a partner workshop, which links the car marketplace to the services marketplace.
 - **Personalization:** every product knows which car models or plugs it fits. The app shows "Fits your BYD Atto 3" and "Picked for your car".
 
+### 3.7 Live battery during a trip
+- **Real readings** come from the car when possible: Android Auto, a connected-car account (Enode / Smartcar: BYD, MG, Tesla, Hyundai/Kia…) or an OBD dongle.
+- **Between readings** the app estimates: battery drops by km driven × energy per km.
+- **Learning:** when a real reading arrives, the app compares it with its estimate and learns this car's real consumption. The result is saved as a personal factor (e.g. "+8% vs the model"), so every future range and trip plan gets more accurate.
+- **Re-planning:** the plan is recalculated automatically when the battery is 3%+ off the plan, every 25 km, or every 15 minutes (charger availability changes).
+- Apple does **not** allow apps to read car data through CarPlay. On iPhone the live battery therefore comes from a car account or OBD dongle (details in [CAR_INTEGRATION.md](CAR_INTEGRATION.md)).
+
+### 3.8 Automatic driving conditions
+- **Temperature:** live weather at the start and destination (the warmer one counts, since AC load follows the heat). Offline: the typical daytime temperature for that part of Egypt and that month (Luxor in July ≈ 41°C, Alexandria ≈ 30°C).
+- **AC:** from the car where it reports it. Otherwise on above 26°C (or below 12°C for heating), which is right most of the year in Egypt.
+- **Road type:** from the trip distance, then from live speed.
+- **Driving style:** detected from real driving (hard accelerations/braking per 10 km, share of time above 130 km/h). Once the car reports real battery use, the learned consumption replaces the style guess entirely.
+
+### 3.9 Community charging (peer-to-peer)
+1. A host lists a charger: plug type, power, price per kWh, hours, parking type, area. EVWorld suggests a price from the host's own electricity cost and shows a monthly earnings estimate.
+2. The listing is **public**. By default the map shows an **approximate pin 250–450 m away**, and the exact spot and access instructions ("black gate, ring flat 3") go only to drivers whose request the host accepts. Hosts can switch to an exact pin.
+3. A driver requests a time slot and an amount (kWh). The host accepts or declines in the chat.
+4. After charging, kWh are measured by the host's smart charger, by meter readings (photo before/after), or estimated from charging time × power.
+5. **The driver pays the host's price plus a 10% service fee** (min EGP 5). The host receives the full energy amount, and both rate each other.
+
+### 3.10 Accounts, mobile number and privacy
+- Sign in with **Apple or Google**, then a **verified Egyptian mobile number is required** (OTP by SMS) before ordering, chatting, booking or hosting. Browsing stays open without an account, which Apple's App Store rules expect.
+- Offering Google sign-in makes Sign in with Apple mandatory on iPhone. Both are offered.
+- Other users see only **"First L."**, a verified-mobile badge and ratings. Never the phone number.
+- **Chats** automatically hide phone numbers (including Arabic digits and spelled-out numbers), emails, and WhatsApp/Telegram/social links. Prices, kW and times stay readable. The same rule runs inside the database, so a modified app can't bypass it.
+- **Delivery addresses** (governorate, city, street, building, floor, apartment, landmark, optional map pin) stay in the user's address book. A seller only sees the address and phone **snapshot on their own order**.
+
 ---
 
 ## 4. Business model
@@ -115,6 +153,8 @@ In production, status comes from each charging network through **OCPI** (Open Ch
 | Dealer subscription | Unlimited listings, dealer badge, lead dashboard | EGP 4,500 / month |
 | Battery inspection reports | Share of the inspection fee with partner workshops | EGP 1,500 per report (shared) |
 | Sponsored placement | Brands and operators promote products or chargers to matching drivers ("adapter for your GB/T car") | CPM / CPC |
+| Community charging fee | Service fee paid by the driver on every peer-to-peer session | 10% (min EGP 5) |
+| Charging-network partnerships (later) | "Start & pay in EVWorld" at partner networks, sponsored new stations | Revenue share |
 | Driver premium (later) | Advanced planner, unlimited alerts, auto battery sync | Monthly subscription |
 | Data & insights (later) | Anonymous demand data for charging operators, investors and government ("where are drivers getting stranded?") | B2B contracts |
 
@@ -136,10 +176,12 @@ commission EGP 1,000 − payment gateway (~2.75%) EGP 275 = **EGP 725 net to EVW
 | **Bluetooth OBD-II dongle** | Works offline and with many Chinese cars | Hardware logistics (~EGP 1,500); each model needs its own decoding |
 | **Android Automotive / Android Auto** | Native, free | Only some cars; Apple CarPlay limits this for third parties |
 
-**Recommendation:** launch with manual input and learn each driver's real consumption from their trips. Add connected-car APIs for supported brands as a premium feature. Pilot an OBD dongle (possibly sold in the marketplace) for Chinese brands.
+**CarPlay vs Android Auto:** both can show EVWorld on the car screen (as an EV-charging app, after Apple/Google approval). Only Android Auto can pass the battery % to the app, and only for cars that share it. Apple doesn't allow it through CarPlay.
+
+**Recommendation (now built into the app's design):** manual input plus distance-based estimates for everyone, with learning of each car's real consumption. Add Android Auto battery where available. Make connected-car accounts a premium feature (Enode made BYD and MG generally available in January 2026, which matters for Egypt). Pilot an OBD dongle sold in the marketplace for cars without a cloud API.
 
 ### 5.2 Charger data accuracy and live status
-Live status is only as good as the data feeds. Sign data partnerships with every network (OCPI where supported). Add driver reports and photos, with a verification team. LiveEV already aggregates networks, so EVWorld must match on data quality and win on the planner and the marketplace.
+Live status is only as good as the data feeds. Sign data partnerships with every network (OCPI where supported), starting with the largest (Infinity EV, then Sha7en and ELSEWEDY Plug). Add driver reports and photos, with a verification team. LiveEV already aggregates networks, so EVWorld must match on data quality and win on the planner, community chargers and the marketplace. Full plan, operator list and pitch: [CHARGER_DATA_EGYPT.md](CHARGER_DATA_EGYPT.md).
 
 ### 5.3 Plug fragmentation in Egypt
 CCS2 is the public standard, but many imported cars use **GB/T** and older Leafs use **CHAdeMO**, which is rare. The app handles this per car, and it's a product opportunity: adapters, portable chargers, and clear "fits your car" labelling.
@@ -156,7 +198,16 @@ Cash on delivery is still common. It raises return and fraud risk, so add a smal
 ### 5.7 Legal and regulatory
 Marketplace liability, consumer-protection rules (returns, warranties), and Egypt's personal-data-protection law (location data is sensitive). Range estimates need a clear disclaimer. **Take local legal advice before launch.**
 
-### 5.8 Localization
+### 5.8 Community charging: legal, safety and trust
+- **Is reselling home electricity allowed?** EgyptERA licenses charging operators, and public charging tariffs are regulated. Charging a fee for electricity from a residential meter may not be allowed as-is. Options to validate with a lawyer and EgyptERA:
+  1. present it as **cost-sharing** for the host's electricity plus a platform service fee;
+  2. partner with a **licensed operator** that owns the commercial relationship;
+  3. limit hosting to **businesses** (offices, cafés, hotels, compounds) that can be licensed.
+- **Safety:** home wiring must be rated for EV charging. Ask hosts to confirm a dedicated breaker, and offer a paid inspection through partner electricians in the marketplace (another revenue line). Consider insurance for damage during sessions.
+- **Trust:** verified mobiles, ratings on both sides, approximate location until accepted, in-app chat only, payment held by EVWorld until the session is complete, and a report button.
+- **kWh disputes:** smart chargers with an app or OCPP connection report kWh automatically, so prefer them. Otherwise use meter photos before/after. Time-based estimates come last.
+
+### 5.9 Localization
 Arabic with right-to-left layout must be first-class, not an afterthought. EGP pricing, local payment methods, WhatsApp as the main communication channel.
 
 ---
@@ -165,8 +216,9 @@ Arabic with right-to-left layout must be first-class, not an afterthought. EGP p
 
 | Phase | Scope |
 |---|---|
-| **1. MVP launch** | Backend (accounts, database, admin panel), real charger data with 2–3 network partners, Arabic/RTL, push notifications, payment gateway, vendor portal for accessories and shops, App Store and Google Play release |
-| **2. Growth** | OCPI live status for all partners, car listings with photos and ID verification, ratings and reviews, connected-car battery sync (premium), WhatsApp alerts |
+| **1. MVP launch** | Deploy the backend (schema ready), admin & review panel, real charger data with 2–3 network partners, Arabic/RTL, SMS OTP, push notifications, payment gateway, vendor portal, App Store & Google Play release |
+| **2. Car & community** | CarPlay / Android Auto (entitlement + native module), Android Auto battery, connected-car accounts (premium), community charging pilot in 2–3 compounds after the legal review, OCPI live status for all partners |
+| **2b. Growth** | Car listings with photos and ID verification, ratings and reviews, WhatsApp alerts, OBD dongle pilot |
 | **3. Scale** | Courier integration, sponsored listings, fleet/B2B accounts, in-app charging payments with operators, data products |
 
 **Team for phase 1:** 2 mobile developers (the codebase already runs on iOS, Android and web), 1 backend developer, 1 product designer, 1 product manager, and 1–2 people for vendor onboarding and data quality.
@@ -184,4 +236,4 @@ Arabic with right-to-left layout must be first-class, not an afterthought. EGP p
 
 ## 8. Technology in one paragraph
 
-One codebase (React Native with Expo, TypeScript) produces the **iPhone app, Android app and a web version**. All calculations (range, charging, trip planner, marketplace checkout) live in a separate "core" module with automated tests (31 tests). That module can later also run on the server. The phone apps use Apple / Google Maps. The web demo uses a built-in drawing of Egypt, so it runs without map keys.
+One codebase (React Native with Expo, TypeScript) produces the **iPhone app, Android app and a web version**. All calculations live in a separate "core" module with automated tests (85 tests): range, charging, trip planner, live battery & learning, automatic conditions, marketplace checkout, community pricing, contact masking, charger feeds and car screens. The backend design (`backend/supabase/schema.sql`) puts the privacy and payment rules inside the database. It is checked by 6 automated tests on a real PostgreSQL engine. The phone apps use Apple / Google Maps. The web demo uses a built-in drawing of Egypt, so it runs without map keys.

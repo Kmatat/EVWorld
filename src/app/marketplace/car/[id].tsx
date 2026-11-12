@@ -13,7 +13,9 @@ import { roadKm } from '@/core/roads';
 import { Vehicle } from '@/core/types';
 import { carById, SHOPS, vendorById } from '@/data/marketplace';
 import { placeById } from '@/data/places';
+import { useRequireAccount } from '@/hooks/useRequireAccount';
 import { useAppStore } from '@/store/useAppStore';
+import { useCommunityStore } from '@/store/useCommunityStore';
 import { colors, space } from '@/theme';
 
 /** Popular trips used to answer "can this car do my trips?" */
@@ -32,6 +34,9 @@ export default function CarDetail() {
   const addInquiry = useAppStore((s) => s.addInquiry);
   const [offer, setOffer] = useState('');
   const [showOffer, setShowOffer] = useState(false);
+  const { requireAccount } = useRequireAccount();
+  const openConversation = useCommunityStore((s) => s.openConversation);
+  const sendChat = useCommunityStore((s) => s.send);
 
   if (!car) return <Screen><Banner tone="amber" text="Listing not found." /></Screen>;
   const vendor = vendorById(car.vendorId)!;
@@ -143,11 +148,13 @@ export default function CarDetail() {
 
       <View style={{ gap: space.sm }}>
         <Button
-          title="Message seller on WhatsApp"
-          icon="logo-whatsapp"
+          title="Message seller"
+          icon="chatbubbles-outline"
           onPress={() => {
+            if (!requireAccount(`/marketplace/car/${car.id}`)) return;
             addInquiry({ carId: car.id, kind: 'message' });
-            toast('Demo: this opens a WhatsApp chat with the seller (phone number stays private)');
+            const conv = openConversation({ kind: 'car', subjectId: car.id, title: `${car.year} ${car.make} ${car.model}`, counterpartName: vendor.type === 'private_seller' ? 'Car owner' : vendor.name, myRole: 'buyer' });
+            router.push(`/chat/${conv}`);
           }}
         />
         <Button title="Make an offer" icon="pricetag-outline" kind="secondary" onPress={() => setShowOffer((v) => !v)} />
@@ -160,7 +167,10 @@ export default function CarDetail() {
             title="Send offer"
             disabled={!offer}
             onPress={() => {
+              if (!requireAccount(`/marketplace/car/${car.id}`)) return;
               addInquiry({ carId: car.id, kind: 'offer', offerEgp: Number(offer) });
+              const conv = openConversation({ kind: 'car', subjectId: car.id, title: `${car.year} ${car.make} ${car.model}`, counterpartName: vendor.type === 'private_seller' ? 'Car owner' : vendor.name, myRole: 'buyer' });
+              sendChat(conv, `I'd like to offer ${formatEgp(Number(offer))} for the car.`);
               setShowOffer(false);
               toast(`Offer of ${formatEgp(Number(offer))} sent to the seller`);
             }}

@@ -5,9 +5,12 @@ import { Pressable, Text, View } from 'react-native';
 
 import { VendorAvatar } from '@/components/market';
 import { Banner, Button, Card, Divider, Row, Screen, Stepper, text } from '@/components/ui';
+import { formatAddress, formatEgyptMobile } from '@/core/identity';
 import { buildCheckout, formatEgp, PAYMENT_LABEL, PaymentMethod } from '@/core/marketplace';
 import { PRODUCTS, VENDORS } from '@/data/marketplace';
+import { useRequireAccount } from '@/hooks/useRequireAccount';
 import { newId, PlacedOrder, useAppStore } from '@/store/useAppStore';
+import { useDefaultAddress } from '@/store/useAuthStore';
 import { colors, space } from '@/theme';
 
 export default function CartScreen() {
@@ -17,6 +20,8 @@ export default function CartScreen() {
   const addOrders = useAppStore((s) => s.addOrders);
   const [payment, setPayment] = useState<PaymentMethod>('card');
   const [placed, setPlaced] = useState<PlacedOrder[] | null>(null);
+  const { user, ready, requireAccount } = useRequireAccount();
+  const address = useDefaultAddress();
 
   const summary = buildCheckout(cart, PRODUCTS, VENDORS, payment);
 
@@ -68,6 +73,11 @@ export default function CartScreen() {
   }
 
   const placeOrder = () => {
+    if (!requireAccount('/marketplace/cart')) return;
+    if (!address) {
+      router.push('/account/address');
+      return;
+    }
     const orders: PlacedOrder[] = summary.orders.map((o) => ({
       id: newId('EVW'),
       vendorId: o.vendor.id,
@@ -76,6 +86,8 @@ export default function CartScreen() {
       payment,
       createdAt: Date.now(),
       status: 'placed',
+      deliverTo: formatAddress(address),
+      contactPhone: user?.phone,
     }));
     addOrders(orders);
     clearCart();
@@ -122,6 +134,36 @@ export default function CartScreen() {
       ))}
 
       <Card>
+        <Text style={text.h3}>Delivery</Text>
+        {!ready ? (
+          <>
+            <Text style={[text.body, { marginTop: 4 }]}>Sign in and verify your mobile number to check out. Browsing and the cart work without an account.</Text>
+            <Button title={user ? 'Verify my mobile number' : 'Sign in to check out'} icon="person-circle-outline" style={{ marginTop: space.md }} onPress={() => requireAccount('/marketplace/cart')} />
+          </>
+        ) : address ? (
+          <>
+            <Pressable onPress={() => router.push('/account/addresses?select=1')} style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start', marginTop: space.sm }}>
+              <Ionicons name="location-outline" size={20} color={colors.primary} />
+              <View style={{ flex: 1 }}>
+                <Text style={text.strong}>{address.label}</Text>
+                <Text style={text.body}>{formatAddress(address)}</Text>
+              </View>
+              <Text style={{ color: colors.primaryDark, fontWeight: '600' }}>Change</Text>
+            </Pressable>
+            <Row style={{ marginTop: space.md }}>
+              <Ionicons name="call-outline" size={18} color={colors.inkSoft} />
+              <Text style={[text.body, { flex: 1 }]}>
+                {user?.name} · {user?.phone ? formatEgyptMobile(user.phone) : ''}
+              </Text>
+            </Row>
+            <Text style={[text.small, { marginTop: 4 }]}>Your address and mobile are shared only with the sellers who ship this order.</Text>
+          </>
+        ) : (
+          <Button title="Add a delivery address" icon="add" style={{ marginTop: space.md }} onPress={() => router.push('/account/address')} />
+        )}
+      </Card>
+
+      <Card>
         <Text style={text.h3}>Payment</Text>
         {(Object.keys(PAYMENT_LABEL) as PaymentMethod[]).map((m) => (
           <Pressable key={m} onPress={() => setPayment(m)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 }}>
@@ -140,7 +182,11 @@ export default function CartScreen() {
         <Line label="Total" value={formatEgp(summary.grandTotal)} bold />
       </Card>
 
-      <Button title={`Place ${summary.orders.length > 1 ? `${summary.orders.length} orders` : 'order'} · ${formatEgp(summary.grandTotal)}`} icon="lock-closed-outline" onPress={placeOrder} />
+      <Button
+        title={!ready ? 'Sign in to place your order' : !address ? 'Add an address to continue' : `Place ${summary.orders.length > 1 ? `${summary.orders.length} orders` : 'order'} · ${formatEgp(summary.grandTotal)}`}
+        icon="lock-closed-outline"
+        onPress={placeOrder}
+      />
       <Text style={[text.small, { textAlign: 'center' }]}>Demo checkout: no payment is taken.</Text>
     </Screen>
   );

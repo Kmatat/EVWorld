@@ -82,7 +82,7 @@ export default function EVMap({ pins, path, height = 280, onPinPress, fit }: EVM
   const showDistricts = k > 260;
 
   // Draw stations first, then route stops, start and destination on top.
-  const order: Record<MapPin['kind'], number> = { station: 0, stop: 1, origin: 2, destination: 3 };
+  const order: Record<MapPin['kind'], number> = { station: 0, community: 0, stop: 1, origin: 2, destination: 3 };
   const sortedPins = [...pins].sort((a, b) => order[a.kind] - order[b.kind]);
 
   return (
@@ -121,7 +121,7 @@ export default function EVMap({ pins, path, height = 280, onPinPress, fit }: EVM
           {sortedPins.map((pin) => {
             const p = project(pin.location.lat, pin.location.lng);
             if (!inView(p)) return null;
-            const size = pin.kind === 'station' ? 16 : 24;
+            const size = pin.kind === 'station' || pin.kind === 'community' ? 16 : 24;
             return (
               <Pressable
                 key={`${pin.kind}-${pin.id}`}
@@ -134,6 +134,8 @@ export default function EVMap({ pins, path, height = 280, onPinPress, fit }: EVM
               >
                 {pin.kind === 'destination' ? (
                   <Ionicons name="flag" size={12} color="#fff" />
+                ) : pin.kind === 'community' ? (
+                  <Ionicons name="home" size={8} color="#fff" />
                 ) : pin.kind === 'origin' ? (
                   <View style={styles.originDot} />
                 ) : pin.label ? (

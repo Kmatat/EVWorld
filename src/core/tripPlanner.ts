@@ -49,6 +49,8 @@ export interface TripInput {
   availableOnly?: boolean;
   /** How far off the direct route a charger may be. */
   maxDetourKm?: number;
+  /** Personal consumption correction learned from real battery readings. */
+  consumptionFactor?: number;
   now?: number;
 }
 
@@ -158,7 +160,8 @@ export function planTrip(input: TripInput): TripPlan {
     now = Date.now(),
   } = input;
   const soc = Math.max(0, Math.min(100, input.batteryPercent));
-  const whPerKm = consumption(vehicle, conditions).totalWhPerKm;
+  const factor = input.consumptionFactor ?? 1;
+  const whPerKm = consumption(vehicle, conditions, factor).totalWhPerKm;
   const pct = (km: number) => percentForKm(vehicle, km, whPerKm);
   const driveMin = (km: number) => (km / AVERAGE_SPEED_KMH[conditions.profile]) * 60;
   const directKm = roadKm(origin, destination);
@@ -386,7 +389,7 @@ export function planTrip(input: TripInput): TripPlan {
     directKm,
     totalKm: driven,
     whPerKm,
-    safeRangeKm: estimateRange(vehicle, soc, conditions, reservePercent).safeRangeKm,
+    safeRangeKm: estimateRange(vehicle, soc, conditions, reservePercent, factor).safeRangeKm,
     directArrivalPercent: soc - pct(directKm),
     arrivalPercent,
     stops,

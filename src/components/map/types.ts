@@ -1,6 +1,6 @@
 import { LatLng } from '@/core/types';
 
-export type PinKind = 'station' | 'origin' | 'destination' | 'stop';
+export type PinKind = 'station' | 'community' | 'origin' | 'destination' | 'stop';
 
 export interface MapPin {
   id: string;
